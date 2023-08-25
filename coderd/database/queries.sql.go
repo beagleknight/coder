@@ -4047,9 +4047,8 @@ func (q *sqlQuerier) GetAllTailnetAgents(ctx context.Context) ([]TailnetAgent, e
 }
 
 const getAllTailnetClients = `-- name: GetAllTailnetClients :many
-SELECT id, coordinator_id, agent_id, updated_at, node
+SELECT id, coordinator_id, updated_at, node, agent_ids
 FROM tailnet_clients
-ORDER BY agent_id
 `
 
 func (q *sqlQuerier) GetAllTailnetClients(ctx context.Context) ([]TailnetClient, error) {
@@ -4064,9 +4063,9 @@ func (q *sqlQuerier) GetAllTailnetClients(ctx context.Context) ([]TailnetClient,
 		if err := rows.Scan(
 			&i.ID,
 			&i.CoordinatorID,
-			&i.AgentID,
 			&i.UpdatedAt,
 			&i.Node,
+			pq.Array(&i.AgentIds),
 		); err != nil {
 			return nil, err
 		}
@@ -4116,13 +4115,13 @@ func (q *sqlQuerier) GetTailnetAgents(ctx context.Context, id uuid.UUID) ([]Tail
 }
 
 const getTailnetClientsForAgent = `-- name: GetTailnetClientsForAgent :many
-SELECT id, coordinator_id, agent_id, updated_at, node
+SELECT id, coordinator_id, updated_at, node, agent_ids
 FROM tailnet_clients
-WHERE agent_id = $1
+WHERE $1::uuid = ANY(agent_ids)
 `
 
-func (q *sqlQuerier) GetTailnetClientsForAgent(ctx context.Context, agentID uuid.UUID) ([]TailnetClient, error) {
-	rows, err := q.db.QueryContext(ctx, getTailnetClientsForAgent, agentID)
+func (q *sqlQuerier) GetTailnetClientsForAgent(ctx context.Context, dollar_1 uuid.UUID) ([]TailnetClient, error) {
+	rows, err := q.db.QueryContext(ctx, getTailnetClientsForAgent, dollar_1)
 	if err != nil {
 		return nil, err
 	}
@@ -4133,9 +4132,9 @@ func (q *sqlQuerier) GetTailnetClientsForAgent(ctx context.Context, agentID uuid
 		if err := rows.Scan(
 			&i.ID,
 			&i.CoordinatorID,
-			&i.AgentID,
 			&i.UpdatedAt,
 			&i.Node,
+			pq.Array(&i.AgentIds),
 		); err != nil {
 			return nil, err
 		}
@@ -4192,7 +4191,7 @@ INSERT INTO
 	tailnet_clients (
 	id,
 	coordinator_id,
-	agent_id,
+	agent_ids,
 	node,
 	updated_at
 )
@@ -4202,16 +4201,16 @@ ON CONFLICT (id, coordinator_id)
 DO UPDATE SET
 	id = $1,
 	coordinator_id = $2,
-	agent_id = $3,
+	agent_ids = $3,
 	node = $4,
 	updated_at = now() at time zone 'utc'
-RETURNING id, coordinator_id, agent_id, updated_at, node
+RETURNING id, coordinator_id, updated_at, node, agent_ids
 `
 
 type UpsertTailnetClientParams struct {
 	ID            uuid.UUID       `db:"id" json:"id"`
 	CoordinatorID uuid.UUID       `db:"coordinator_id" json:"coordinator_id"`
-	AgentID       uuid.UUID       `db:"agent_id" json:"agent_id"`
+	AgentIds      []uuid.UUID     `db:"agent_ids" json:"agent_ids"`
 	Node          json.RawMessage `db:"node" json:"node"`
 }
 
@@ -4219,16 +4218,16 @@ func (q *sqlQuerier) UpsertTailnetClient(ctx context.Context, arg UpsertTailnetC
 	row := q.db.QueryRowContext(ctx, upsertTailnetClient,
 		arg.ID,
 		arg.CoordinatorID,
-		arg.AgentID,
+		pq.Array(arg.AgentIds),
 		arg.Node,
 	)
 	var i TailnetClient
 	err := row.Scan(
 		&i.ID,
 		&i.CoordinatorID,
-		&i.AgentID,
 		&i.UpdatedAt,
 		&i.Node,
+		pq.Array(&i.AgentIds),
 	)
 	return i, err
 }
